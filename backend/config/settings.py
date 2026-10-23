@@ -158,6 +158,7 @@ if os.getenv("DJANGO_ENV") == "production":
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_SSL_REDIRECT = True
+    SECURE_REDIRECT_EXEMPT = [r"^health/$"]
     SECURE_HSTS_SECONDS = 3600
     SECURE_CONTENT_TYPE_NOSNIFF = True
     # Configure only when requests can arrive exclusively through a trusted proxy.
