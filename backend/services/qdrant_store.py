@@ -1,29 +1,36 @@
-import os
-import uuid
-from typing import Iterable, Tuple
+from django.conf import settings
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
-QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
-COLLECTION = os.getenv("QDRANT_COLLECTION", "enterprise_docs")
 
-client = QdrantClient(url=QDRANT_URL)
+def get_client():
+    return QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY or None, timeout=30)
 
-def ensure_collection(vector_size: int) -> None:
 
-    existing = [c.name for c in client.get_collections().collections]
-    if COLLECTION in existing:
+def ensure_collection(vector_size):
+    client = get_client()
+    collection = settings.QDRANT_COLLECTION
+    if client.collection_exists(collection):
+        config = client.get_collection(collection).config.params.vectors
+        if not isinstance(config, VectorParams) or config.size != vector_size:
+            raise ValueError("Collection vector dimensions do not match the embedding model.")
         return
+    client.create_collection(collection_name=collection,
+        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE))
 
-    client.create_collection(
-        collection_name=COLLECTION,
-        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-    )
 
-def upsert_vectors(items: Iterable[Tuple[str, list[float], dict]]) -> None:
+def upsert_vectors(items):
+    get_client().upsert(collection_name=settings.QDRANT_COLLECTION,
+        points=[PointStruct(id=pid, vector=vector, payload=payload) for pid, vector, payload in items],
+        wait=True)
 
-    points = [
-        PointStruct(id=pid, vector=vec, payload=payload)
-        for pid, vec, payload in items
-    ]
-    client.upsert(collection_name=COLLECTION, points=points)
+
+def search_vectors(vector, top_k, score_threshold, document_id=None):
+    client = get_client()
+    if not client.collection_exists(settings.QDRANT_COLLECTION):
+        return []
+    query_filter = None
+    if document_id is not None:
+        query_filter = Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))])
+    return client.query_points(collection_name=settings.QDRANT_COLLECTION, query=vector,
+        limit=top_k, score_threshold=score_threshold, query_filter=query_filter).points

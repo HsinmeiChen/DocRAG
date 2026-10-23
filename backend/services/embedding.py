@@ -1,19 +1,16 @@
-import os
+from django.conf import settings
 from openai import OpenAI
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def get_client():
+    if not settings.OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY is not configured.")
+    return OpenAI(api_key=settings.OPENAI_API_KEY, timeout=30, max_retries=2)
+
 
 def embed_text(text: str) -> list[float]:
-    """
-    Returns embedding vector for a given text.
-    """
     text = (text or "").strip()
     if not text:
         return []
-
-    model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-    resp = client.embeddings.create(
-        model=model,
-        input=text
-    )
-    return resp.data[0].embedding
+    response = get_client().embeddings.create(model=settings.OPENAI_EMBEDDING_MODEL, input=text)
+    return response.data[0].embedding

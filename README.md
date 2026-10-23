@@ -1,3 +1,6 @@
+# DocRAG
+以 Django、PostgreSQL、Qdrant 與 OpenAI 建置的 PDF 文件問答 API，支援語意檢索與來源引用。
+
 本專案是一個基於 RAG（檢索增強生成）架構的企業文件問答系統後端服務，核心目的在於完整實作包含動態上傳、文本分段、向量化儲存、語意檢索及動態提示詞生成的完整 RAG 技術鏈；專案專注於後端架構與資料流實作，完全採用 Docker Compose 進行容器化管理，並利用 Django ORM 進行關聯式資料庫控制，以確保開發與部署環境的一致性與可擴充性。
 
 1. 系統架構與角色分工
@@ -15,7 +18,7 @@ OpenAI API：
 [資料流與技術流程]
 
 A. 知識庫建置流水線 (Data Pipeline)
-上傳 PDF/文字文件 -> 文本分段 (Chunking)
+上傳 PDF -> 文字擷取 -> 文本分段 (Chunking)
 ├──> 使用 Django ORM 寫入 PostgreSQL (儲存原始內文)
 └──> 呼叫 OpenAI Embedding -> 寫入 Qdrant (儲存向量索引)
 
@@ -35,29 +38,30 @@ AI 開發套件：OpenAI API
 3. API 端點說明
 本專案為純後端 API 服務，支援透過 Postman 或 cURL 進行接口測試與資料驗證：
 
-功能 1：上傳文件
+功能 1：上傳與解析文件
 
 HTTP 方法：POST
-URL 端點 ：/api/documents/
-說明 ：上傳原始文件並透過 Django ORM 寫入 PostgreSQL。
+URL 端點：/api/documents/
+說明：驗證並解析 PDF，將文件內容切分為 Chunks，再把文件資訊與 Chunks 儲存至 PostgreSQL。
 
-功能 2：建立索引
+功能 2：建立向量索引
 
 HTTP 方法：POST
-URL 端點 ：/api/documents/{id}/index/
-說明 ：將指定文件進行 Chunking、向量化並大量寫入（Upsert）至 Qdrant。
+URL 端點：/api/documents/{id}/index/
+說明：為指定文件的 Chunks 產生 Embedding，寫入 Qdrant，並記錄文件的索引狀態。
 
 功能 3：語意搜尋
 
 HTTP 方法：POST
-URL 端點 ：/api/search/
-說明 ：輸入查詢字串，返回 Qdrant 檢索出關聯度最高的文字段落。
+URL 端點：/api/search/
+說明：將問題轉換為向量，從 Qdrant 取回相似度最高的文件段落，可限定指定文件。
 
-功能 4：知識庫問答
+功能 4：文件問答
 
 HTTP 方法：POST
-URL 端點 ：/api/ask/
-說明 ：結合語意檢索與 LLM，生成限制文本來源的準確回答。
+URL 端點：/api/ask/
+說明：根據檢索結果生成回答，回傳頁碼、Chunk 位置與相似度；只保留回答實際使用的引用。
+
 
 4. 生產環境工程實踐與健全性設計
 本專案在架構設計與實作上，遵循以下生產環境工程標準：
@@ -84,9 +88,7 @@ URL 端點 ：/api/ask/
 請在專案根目錄下建立一個名為 .env 的檔案，並填入以下內容：
 
 OPENAI_API_KEY=你的OpenAI金鑰
-
 QDRANT_URL=http://qdrant:6333
-
 QDRANT_COLLECTION=enterprise_docs
 
 [Step 2: 啟動系統與資料庫遷移]
@@ -95,22 +97,47 @@ QDRANT_COLLECTION=enterprise_docs
 1. 建立並在背景啟動所有 Docker 容器 (Django, PostgreSQL, Qdrant)
 docker compose up -d
 
-
-3. 執行 Django 資料庫遷移，讓 Django ORM 自動在 PostgreSQL 中建立所需的資料表
+2. 執行 Django 資料庫遷移，讓 Django ORM 自動在 PostgreSQL 中建立所需的資料表
 docker compose exec web python manage.py migrate
-
 
 (註：若您 docker-compose 中的 Django 服務名稱不為 web，請將上面指令中的 web 替換為對應的服務名稱。)
 
 [Step 3: 健康檢查]
 系統啟動後，可透過瀏覽器或 Postman 訪問健康檢查端點：
-
 http://localhost:8000/health/
-
 
 若看見以下 JSON 回應，代表所有容器與關聯資料庫皆正常連線運行：
 {"status":"ok","db":1}
 
-[關閉系統]
-若需停止所有容器服務並保持資料安全，請於專案目錄執行：
-docker compose down
+6. 自動化測試
+
+執行方式：
+docker compose exec web python manage.py test
+
+目前測試涵蓋：
+
+- 回答使用中文引用格式【1】時，只回傳實際使用的文件段落。
+- 文件無法回答問題時，不回傳無關引用。
+- 測試使用 Mock 隔離 OpenAI 與 Qdrant，不會產生外部 API 費用。
+
+預期結果：
+Ran 2 tests
+OK
+
+
+7. 目前成果與限制
+
+[已完成]
+
+- 完成 PDF 上傳、文字擷取、Chunking、Embedding、向量索引與語意檢索流程。
+- 問答可限定指定文件，並回傳頁碼、Chunk 位置與相似度。
+- 只回傳答案實際使用的引用，無法回答時不附加無關引用。
+- 使用 Docker Compose 整合 Django、PostgreSQL 與 Qdrant。
+- 使用自動測試驗證引用篩選，並透過 Mock 隔離外部服務。
+
+[目前限制]
+
+- 僅支援具有文字層的 PDF，掃描文件尚未加入 OCR。
+- 文件索引採同步處理，大型文件可能需要較長的請求時間。
+- LLM 仍可能改寫文件措辭，使用者應搭配引用段落核對原文。
+- 目前提供後端 API，尚未實作操作介面。

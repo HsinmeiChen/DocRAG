@@ -1,6 +1,8 @@
 from pypdf import PdfReader
 
 def chunk_pdf(file_path, chunk_size=100):
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
     reader = PdfReader(file_path)
     chunks = []
 
