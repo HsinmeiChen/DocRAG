@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.http import JsonResponse
 from django.db import connection
+import logging
+logger = logging.getLogger(__name__)
 
 def health(request):
     try:
@@ -10,6 +12,7 @@ def health(request):
             row = cursor.fetchone()
         return JsonResponse({"status": "ok", "db": row[0]})
     except Exception:
+        logger.exception("Database health check failed")
         return JsonResponse({"status": "unavailable", "db": None}, status=503)
 
 def home(request):
